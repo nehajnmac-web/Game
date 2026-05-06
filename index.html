@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Slice 360 - Standalone</title>
+    <!-- Tailwind CSS Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;700&family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body {
+            background-color: #050505;
+            color: white;
+            overflow: hidden;
+            margin: 0;
+            user-select: none;
+            font-family: "Space Grotesk", sans-serif;
+        }
+
+        .neon-text-cyan {
+            text-shadow: 0 0 10px #00F0FF, 0 0 20px #00F0FF;
+        }
+        .neon-text-magenta {
+            text-shadow: 0 0 10px #FF00FF, 0 0 20px #FF00FF;
+        }
+        .neon-border-cyan {
+            box-shadow: 0 0 10px #00F0FF, inset 0 0 5px #00F0FF;
+        }
+        .neon-border-magenta {
+            box-shadow: 0 0 10px #FF00FF, inset 0 0 5px #FF00FF;
+        }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "three": "https://esm.sh/three@0.160.0",
+        "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.11",
+        "@react-three/drei": "https://esm.sh/@react-three/drei@9.88.16",
+        "lucide-react": "https://esm.sh/lucide-react@0.400.0",
+        "framer-motion": "https://esm.sh/framer-motion@10.16.4",
+        "uuid": "https://esm.sh/uuid@9.0.1",
+        "htm": "https://esm.sh/htm@3.1.1"
+      }
+    }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module">
+        import React, { useState, useCallback, useEffect, useRef, Suspense, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import * as THREE from 'three';
+        import { Canvas, useFrame } from '@react-three/fiber';
+        import { OrbitControls, PerspectiveCamera, Stars, Grid, Box, Sphere, Text } from '@react-three/drei';
+        import { Heart, Play, RefreshCcw } from 'lucide-react';
+        import { motion, AnimatePresence } from 'framer-motion';
+        import { v4 as uuidv4 } from 'uuid';
+        import htm from 'htm';
+
+        const html = htm.bind(React.createElement);
+
+        // --- CONSTANTS ---
+        const COLORS = {
+            CYAN: '#00F0FF',
+            MAGENTA: '#FF00FF',
+            PURPLE: '#8A2BE2',
+            ELECTRIC_BLUE: '#2E5BFF',
+            NEON_GREEN: '#39FF14',
+            DANGER_RED: '#FF3131',
+            BRUTAL_BLACK: '#050505',
+        };
+
+        const GAME_CONFIG = {
+            SPAWN_RADIUS: 20,
+            DESPAWN_RADIUS: 2,
+            INITIAL_SPEED: 0.05,
+            SPEED_INCREMENT: 0.005,
+            MAX_SPEED: 0.2,
+            SPAWN_RATE: 2000, 
+            MAX_HEALTH: 3,
+        };
+
+        const EnemyType = {
+            BASIC: 'BASIC',
+            ARROW: 'ARROW',
+            HEAVY: 'HEAVY',
+            FAKE: 'FAKE'
+        };
+
+        const GameState = {
+            START: 'START',
+            PLAYING: 'PLAYING',
+            GAMEOVER: 'GAMEOVER'
+        };
+
+        // --- HOOKS ---
+        function useGameLogic() {
+            const [gameState, setGameState] = useState(GameState.START);
+            const [score, setScore] = useState(0);
+            const [combo, setCombo] = useState(0);
+            const [health, setHealth] = useState(GAME_CONFIG.MAX_HEALTH);
+            const [enemies, setEnemies] = useState([]);
+            
+            const spawnTimerRef = useRef(null);
+            const currentSpeedRef = useRef(GAME_CONFIG.INITIAL_SPEED);
+
+            const spawnEnemy = useCallback(() => {
+                const angle = Math.random() * Math.PI * 2;
+                const height = (Math.random() - 0.5) * 4;
+                const x = Math.cos(angle) * GAME_CONFIG.SPAWN_RADIUS;
+                const z = Math.sin(angle) * GAME_CONFIG.SPAWN_RADIUS;
+                const y = height;
+
+                const id = uuidv4();
+                const typeRoll = Math.random();
+                let type = EnemyType.BASIC;
+                if (typeRoll > 0.7) type = EnemyType.ARROW;
+                if (typeRoll > 0.85) type = EnemyType.HEAVY;
+                if (typeRoll > 0.95) type = EnemyType.FAKE;
+
+                const newEnemy = {
+                    id,
+                    type,
+                    position: [x, y, z],
+                    direction: [-x / GAME_CONFIG.SPAWN_RADIUS, -y / GAME_CONFIG.SPAWN_RADIUS, -z / GAME_CONFIG.SPAWN_RADIUS],
+                    speed: currentSpeedRef.current,
+                    health: type === EnemyType.HEAVY ? 2 : 1,
+                    spawnTime: Date.now(),
+                };
+
+                setEnemies(prev => [...prev, newEnemy]);
+            }, []);
+
+            const startGame = () => {
+                setGameState(GameState.PLAYING);
+                setScore(0);
+                setCombo(0);
+                setHealth(GAME_CONFIG.MAX_HEALTH);
+                setEnemies([]);
+                currentSpeedRef.current = GAME_CONFIG.INITIAL_SPEED;
+            };
+
+            const endGame = () => {
+                setGameState(GameState.GAMEOVER);
+            };
+
+            useEffect(() => {
+                if (gameState === GameState.PLAYING) {
+                    spawnTimerRef.current = setInterval(() => {
+                        spawnEnemy();
+                        currentSpeedRef.current = Math.min(
+                            GAME_CONFIG.MAX_SPEED, 
+                            currentSpeedRef.current + GAME_CONFIG.SPEED_INCREMENT
+                        );
+                    }, GAME_CONFIG.SPAWN_RATE);
+                } else {
+                    if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
+                }
+                return () => {
+                    if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
+                };
+            }, [gameState, spawnEnemy]);
+
+            const onHit = (id, isCorrectSlice = true) => {
+                const enemy = enemies.find(e => e.id === id);
+                if (!enemy) return;
+
+                if (enemy.type === EnemyType.FAKE) {
+                    setHealth(prev => {
+                        const newHealth = prev - 1;
+                        if (newHealth <= 0) endGame();
+                        return newHealth;
+                    });
+                    setCombo(0);
+                } else if (isCorrectSlice) {
+                    setScore(prev => prev + 100 * (Math.floor(combo / 10) + 1));
+                    setCombo(prev => prev + 1);
+                } else {
+                    setCombo(0);
+                }
+                setEnemies(prev => prev.filter(e => e.id !== id));
+            };
+
+            const onMiss = (id) => {
+                const enemy = enemies.find(e => e.id === id);
+                if (enemy && enemy.type !== EnemyType.FAKE) {
+                    setHealth(prev => {
+                        const newHealth = prev - 1;
+                        if (newHealth <= 0) endGame();
+                        return newHealth;
+                    });
+                    setCombo(0);
+                }
+                setEnemies(prev => prev.filter(e => e.id !== id));
+            };
+
+            return { gameState, score, combo, health, enemies, startGame, onHit, onMiss };
+        }
+
+        // --- COMPONENTS ---
+        function Enemy({ data, onMiss, onSlice }) {
+            const meshRef = useRef(null);
+            const [isSliced, setIsSliced] = useState(false);
+
+            useFrame(() => {
+                if (!meshRef.current || isSliced) return;
+                meshRef.current.position.x += data.direction[0] * data.speed;
+                meshRef.current.position.y += data.direction[1] * data.speed;
+                meshRef.current.position.z += data.direction[2] * data.speed;
+                const distance = meshRef.current.position.length();
+                if (distance < 1.5) onMiss(data.id);
+            });
+
+            const handlePointerDown = (e) => {
+                e.stopPropagation();
+                if (isSliced) return;
+                setIsSliced(true);
+                onSlice(data.id);
+            };
+
+            const getColor = () => {
+                switch(data.type) {
+                    case EnemyType.FAKE: return COLORS.DANGER_RED;
+                    case EnemyType.ARROW: return COLORS.CYAN;
+                    case EnemyType.HEAVY: return COLORS.PURPLE;
+                    default: return COLORS.MAGENTA;
+                }
+            };
+
+            return html`
+                <group ref=${meshRef} position=${data.position} onPointerDown=${handlePointerDown}>
+                    ${data.type === EnemyType.BASIC && html`
+                        <${Box} args=${[1, 1, 1]}>
+                            <meshStandardMaterial color=${getColor()} emissive=${getColor()} emissiveIntensity=${2} />
+                        <//>
+                    `}
+                    ${data.type === EnemyType.HEAVY && html`
+                        <${Box} args=${[1.2, 1.2, 1.2]}>
+                            <meshStandardMaterial color=${getColor()} emissive=${getColor()} emissiveIntensity=${4} />
+                        <//>
+                    `}
+                    ${data.type === EnemyType.ARROW && html`
+                        <group>
+                            <${Box} args=${[1, 1, 1]}>
+                                <meshStandardMaterial color=${getColor()} emissive=${getColor()} emissiveIntensity=${2} />
+                            <//>
+                            <${Text} position=${[0, 0, 0.6]} fontSize=${0.5} color="white">→</${Text}>
+                        </group>
+                    `}
+                    ${data.type === EnemyType.FAKE && html`
+                        <${Sphere} args=${[0.6, 16, 16]}>
+                            <meshStandardMaterial color=${getColor()} emissive=${getColor()} emissiveIntensity=${3} />
+                        <//>
+                    `}
+                </group>
+            `;
+        }
+
+        function HUD({ score, combo, health, gameState, onStart }) {
+            return html`
+                <div className="fixed inset-0 pointer-events-none flex flex-col items-center justify-between p-8">
+                    <div className="w-full flex justify-between items-start pointer-events-auto">
+                        <div className="flex flex-col">
+                            <div className="text-4xl font-bold italic tracking-tighter text-white neon-text-cyan">${score.toLocaleString()}</div>
+                            <div className="text-xs uppercase tracking-[0.3em] text-cyan-400 opacity-70">Score</div>
+                        </div>
+                        <div className="flex gap-2">
+                            ${Array.from({ length: 3 }).map((_, i) => html`
+                                <${Heart} 
+                                    key=${i} size=${24} fill=${i < health ? '#FF00FF' : 'transparent'} 
+                                    color=${i < health ? '#FF00FF' : '#333'}
+                                    className=${i < health ? 'drop-shadow-[0_0_8px_#FF00FF]' : ''}
+                                />
+                            `)}
+                        </div>
+                    </div>
+                    <div className="flex-1 flex flex-col items-center justify-center">
+                        <${AnimatePresence} mode="wait">
+                            ${gameState === GameState.START && html`
+                                <${motion.div} 
+                                    initial=${{ opacity: 0, scale: 0.8 }} animate=${{ opacity: 1, scale: 1 }} exit=${{ opacity: 0, scale: 0.8 }}
+                                    className="pointer-events-auto flex flex-col items-center gap-6" 
+                                >
+                                    <h1 className="text-8xl font-black italic tracking-tighter text-white uppercase drop-shadow-[0_0_30px_#00F0FF] text-center">
+                                        Neon Slice
+                                        <span className="block text-4xl text-magenta-500 neon-text-magenta">360 Edition</span>
+                                    </h1>
+                                    <button 
+                                        onClick=${onStart}
+                                        className="group relative px-12 py-4 bg-transparent border-2 border-cyan-400 text-cyan-400 font-bold uppercase tracking-widest overflow-hidden transition-all hover:bg-cyan-400 hover:text-black hover:neon-border-cyan cursor-pointer"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <${Play} size=${20} fill="currentColor" /> Initialize Matrix
+                                        </div>
+                                    </button>
+                                <//>
+                            `}
+                            ${gameState === GameState.GAMEOVER && html`
+                                <${motion.div} 
+                                    initial=${{ opacity: 0, y: 20 }} animate=${{ opacity: 1, y: 0 }}
+                                    className="pointer-events-auto flex flex-col items-center gap-6 bg-black/80 p-12 border border-magenta-500 backdrop-blur-xl" 
+                                >
+                                    <h2 className="text-6xl font-black italic text-magenta-500 uppercase neon-text-magenta">System Failure</h2>
+                                    <div className="text-2xl font-mono text-white/70">Final Score: ${score}</div>
+                                    <button 
+                                        onClick=${onStart}
+                                        className="group flex items-center gap-2 px-8 py-3 bg-magenta-500 text-black font-bold uppercase tracking-widest hover:bg-magenta-400 transition-colors cursor-pointer"
+                                    >
+                                        <${RefreshCcw} size=${20} /> Reboot System
+                                    </button>
+                                <//>
+                            `}
+                            ${gameState === GameState.PLAYING && combo > 1 && html`
+                                <${motion.div} 
+                                    key=${combo} initial=${{ scale: 2, opacity: 0 }} animate=${{ scale: 1, opacity: 1 }}
+                                    className="flex flex-col items-center" 
+                                >
+                                    <div className="text-6xl font-black italic text-cyan-400 neon-text-cyan">${combo}x</div>
+                                    <div className="text-sm font-bold uppercase tracking-widest text-white/50">Combo</div>
+                                <//>
+                            `}
+                        <//>
+                    </div>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.5em] text-white/30 text-center">
+                        360-Degree Defensive Protocol Active // Mouse to Rotate // Click to Slice
+                    </div>
+                </div>
+            `;
+        }
+
+        function App() {
+            const { gameState, score, combo, health, enemies, startGame, onHit, onMiss } = useGameLogic();
+
+            return html`
+                <div className="h-screen w-screen bg-[#050505] overflow-hidden select-none">
+                    <${Canvas} shadows=${true} dpr=${[1, 2]}>
+                        <${PerspectiveCamera} makeDefault=${true} position=${[0, 0, 5]} fov=${75} />
+                        ${gameState === GameState.PLAYING && html`<${OrbitControls} enablePan=${false} enableZoom=${false} autoRotate=${false} makeDefault=${true} />`}
+                        <ambientLight intensity=${0.2} />
+                        <pointLight position=${[10, 10, 10]} intensity=${1} color=${COLORS.CYAN} />
+                        <pointLight position=${[-10, -10, -10]} intensity=${1} color=${COLORS.MAGENTA} />
+                        <${Stars} radius=${100} depth=${50} count=${5000} factor=${4} saturation=${0} fade=${true} speed=${1} />
+                        <${Grid} 
+                            infiniteGrid=${true} fadeDistance=${50} fadeStrength=${5} cellSize=${1} sectionSize=${5} 
+                            sectionColor=${COLORS.PURPLE} cellColor=${COLORS.ELECTRIC_BLUE}
+                        />
+                        <${Suspense} fallback=${null}>
+                            ${enemies.map(enemy => html`<${Enemy} key=${enemy.id} data=${enemy} onMiss=${onMiss} onSlice=${onHit} />`)}
+                        <//>
+                    <//>
+
+                    <${HUD} score=${score} combo=${combo} health=${health} gameState=${gameState} onStart=${startGame} />
+
+                    ${gameState === GameState.PLAYING && html`
+                        <div className="fixed inset-0 pointer-events-none flex items-center justify-center">
+                            <div className="w-12 h-12 border border-cyan-400/30 rounded-full flex items-center justify-center">
+                                <div className="w-1 h-1 bg-cyan-400 rounded-full shadow-[0_0_5px_#00F0FF]" />
+                            </div>
+                            <div className="absolute top-1/2 -left-4 w-8 h-px bg-cyan-400/20"></div>
+                            <div className="absolute top-1/2 -right-4 w-8 h-px bg-cyan-400/20"></div>
+                            <div className="absolute -top-4 left-1/2 w-px h-8 bg-cyan-400/20"></div>
+                            <div className="absolute -bottom-4 left-1/2 w-px h-8 bg-cyan-400/20"></div>
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
