@@ -1,12 +1,864 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Neon Slice 360</title>
-  </head>
-  <body class="bg-[#050505]">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neon Slice 360</title>
+  <!-- Load Tailwind CSS via modern CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    body {
+      font-family: 'Space Grotesk', sans-serif;
+      background-color: #050505;
+      color: #ffffff;
+      margin: 0;
+      overflow: hidden;
+      user-select: none;
+      touch-action: none;
+    }
+    .neon-text-cyan {
+      text-shadow: 0 0 10px #00F0FF, 0 0 20px #00F0FF;
+    }
+    .neon-text-magenta {
+      text-shadow: 0 0 10px #FF00FF, 0 0 20px #FF00FF;
+    }
+    .neon-border-cyan {
+      box-shadow: 0 0 15px #00F0FF, inset 0 0 5px #00F0FF;
+      border-color: #00F0FF;
+    }
+    .neon-border-magenta {
+      box-shadow: 0 0 15px #FF00FF, inset 0 0 5px #FF00FF;
+      border-color: #FF00FF;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body class="bg-[#050505] text-white">
+
+  <!-- Core Canvas Container -->
+  <div id="canvas-container" class="absolute inset-0 z-0"></div>
+
+  <!-- UI & Overlay HUD -->
+  <div id="hud" class="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 sm:p-10 z-10">
+    <!-- Top Bar -->
+    <div class="w-full flex justify-between items-start pointer-events-auto">
+      <div class="flex flex-col">
+        <div id="score-display" class="text-4xl sm:text-5xl font-bold italic tracking-tighter text-white neon-text-cyan">
+          0
+        </div>
+        <div class="text-xs uppercase tracking-[0.3em] text-cyan-400 opacity-75 font-mono">
+          Score
+        </div>
+      </div>
+
+      <div class="flex gap-2" id="hearts-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- Middle: Combo & Game Screens -->
+    <div class="flex-1 flex flex-col items-center justify-center">
+      <!-- Combo Tracker -->
+      <div id="combo-container" class="hidden flex flex-col items-center select-none transition-all scale-75 opacity-0">
+        <div id="combo-text" class="text-6xl sm:text-7xl font-black italic text-cyan-400 neon-text-cyan">0x</div>
+        <div class="text-xs sm:text-sm font-bold uppercase tracking-[0.3em] text-white/60">Combo</div>
+      </div>
+
+      <!-- Start Overlay -->
+      <div id="start-screen" class="pointer-events-auto flex flex-col items-center gap-6 text-center max-w-lg px-4">
+        <h1 class="text-6xl sm:text-8xl font-black italic tracking-tighter text-white uppercase drop-shadow-[0_0_30px_rgba(0,240,255,0.6)]">
+          Neon Slice
+          <span class="block text-2xl sm:text-3xl text-magenta-500 neon-text-magenta mt-1 leading-none">360 Edition</span>
+        </h1>
+        <p class="text-white/60 text-sm sm:text-base tracking-wide max-w-sm mb-2">
+          Defend the core. Look all around you by dragging or swiping. Click or tap incoming neon energy blocks to slice them! Watch out for red EMP cores.
+        </p>
+        <button id="start-button" class="group relative px-10 py-4 bg-transparent border-2 border-cyan-400 text-cyan-400 font-bold uppercase tracking-widest transition-all duration-300 hover:bg-cyan-400 hover:text-black hover:neon-border-cyan cursor-pointer rounded">
+          Initialize Matrix
+        </button>
+      </div>
+
+      <!-- Game Over Overlay -->
+      <div id="gameover-screen" class="hidden pointer-events-auto flex flex-col items-center gap-6 bg-black/90 p-8 sm:p-12 border border-magenta-500 backdrop-blur-xl max-w-md w-full mx-4 rounded-xl text-center shadow-[0_0_45px_rgba(255,0,255,0.3)]">
+        <h2 class="text-4xl sm:text-5xl font-black italic text-magenta-500 uppercase neon-text-magenta">System Failure</h2>
+        <div class="text-xl sm:text-2xl font-mono text-white/80">Final Score: <span id="final-score" class="text-cyan-400">0</span></div>
+        <div class="text-sm font-mono text-white/50 mb-2">High Score: <span id="high-score" class="text-magenta-400">0</span></div>
+        <button id="restart-button" class="group flex items-center justify-center gap-2 px-8 py-3 bg-magenta-500 hover:bg-magenta-400 text-black font-bold uppercase tracking-widest transition-all cursor-pointer rounded w-full">
+          <i data-lucide="refresh-ccw" class="w-5 h-5"></i>
+          Reboot Matrix
+        </button>
+      </div>
+    </div>
+
+    <!-- Bottom info -->
+    <div class="w-full text-center text-[10px] font-mono uppercase tracking-[0.4em] text-white/40">
+      Defensive Protocol Matrix Active // Drag to Look Around // Click to Slice
+    </div>
+  </div>
+
+  <!-- Reticle Crosshair (Gameplay indicator) -->
+  <div id="reticle-overlay" class="hidden fixed inset-0 pointer-events-none flex items-center justify-center z-5">
+    <div class="w-12 h-12 border border-cyan-400/30 rounded-full flex items-center justify-center animate-pulse">
+      <div class="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_#00F0FF]"></div>
+    </div>
+    <!-- Direction markers -->
+    <div class="absolute top-1/2 -left-6 w-10 h-px bg-cyan-400/20"></div>
+    <div class="absolute top-1/2 -right-6 w-10 h-px bg-cyan-400/20"></div>
+    <div class="absolute -top-6 left-1/2 w-px h-10 bg-cyan-400/20"></div>
+    <div class="absolute -bottom-6 left-1/2 w-px h-10 bg-cyan-400/20"></div>
+  </div>
+
+  <!-- Three.js and modules imports -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    // === AUDIO CONTEXT SYNTHESIZER ===
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playSliceSound(type) {
+      if (!audioCtx) return;
+      
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      if (type === 'HEAVY') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(700, now + 0.22);
+        gainNode.gain.setValueAtTime(0.4, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.23);
+      } else {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(1600, now + 0.12);
+        gainNode.gain.setValueAtTime(0.25, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.13);
+      }
+    }
+
+    function playDamageSound() {
+      if (!audioCtx) return;
+      
+      const now = audioCtx.currentTime;
+      const osc1 = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(110, now);
+      osc1.frequency.linearRampToValueAtTime(30, now + 0.28);
+      
+      osc2.type = 'square';
+      osc2.frequency.setValueAtTime(115, now);
+      osc2.frequency.linearRampToValueAtTime(35, now + 0.28);
+      
+      gainNode.gain.setValueAtTime(0.4, now);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      
+      osc1.connect(gainNode);
+      osc2.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 0.3);
+      osc2.stop(now + 0.3);
+    }
+
+    function playStartSound() {
+      if (!audioCtx) return;
+      
+      const now = audioCtx.currentTime;
+      const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99]; // Uplifting C major sweep
+      notes.forEach((freq, idx) => {
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        const delay = idx * 0.08;
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + delay);
+        
+        gainNode.gain.setValueAtTime(0.12, now + delay);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.35);
+        
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.4);
+      });
+    }
+
+    function playGameOverSound() {
+      if (!audioCtx) return;
+      
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.linearRampToValueAtTime(45, now + 1.2);
+      
+      gainNode.gain.setValueAtTime(0.35, now);
+      gainNode.gain.linearRampToValueAtTime(0.001, now + 1.2);
+      
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      osc.start(now);
+      osc.stop(now + 1.25);
+    }
+
+    // === GAME CONSTANTS ===
+    const COLORS = {
+      CYAN: 0x00F0FF,
+      MAGENTA: 0xFF00FF,
+      PURPLE: 0x8A2BE2,
+      ELECTRIC_BLUE: 0x2E5BFF,
+      DANGER_RED: 0xFF3131,
+      LIGHT_GRAY: 0x666666
+    };
+
+    const CONFIG = {
+      SPAWN_RADIUS: 25,
+      DESPAWN_RADIUS: 2.2,
+      INITIAL_SPEED: 0.08,
+      SPEED_INCREMENT: 0.004,
+      MAX_SPEED: 0.25,
+      SPAWN_INTERVAL: 1600, // ms
+      MAX_HEALTH: 3
+    };
+
+    const ENEMY_TYPES = {
+      BASIC: 'BASIC',
+      ARROW: 'ARROW',
+      HEAVY: 'HEAVY',
+      FAKE: 'FAKE'
+    };
+
+    // === STATE VARIABLES ===
+    let gameState = 'START'; // 'START', 'PLAYING', 'GAMEOVER'
+    let score = 0;
+    let combo = 0;
+    let health = CONFIG.MAX_HEALTH;
+    let highScore = localStorage.getItem('neon_slice_highscore') || 0;
+    
+    let enemies = [];
+    let speedMultiplier = 1;
+    let currentSpeed = CONFIG.INITIAL_SPEED;
+    let lastSpawnTime = 0;
+    let globalTime = 0;
+
+    // === THREE.JS SETUP Variables ===
+    let scene, camera, renderer;
+    let reticle, grid, starField, pointLight1, pointLight2;
+    let activeRaycaster, mousePosition;
+    let isTrackingMouse = false;
+
+    // Rotation variables (Manual Orbit simulation to ensure high performance on mobile + web)
+    let isDragging = false;
+    let previousMouseX = 0;
+    let previousMouseY = 0;
+    let rotateY = 0;
+    let rotateX = 0;
+
+    // === DOM REFERENCES ===
+    const scoreDisplay = document.getElementById('score-display');
+    const heartsContainer = document.getElementById('hearts-container');
+    const comboContainer = document.getElementById('combo-container');
+    const comboText = document.getElementById('combo-text');
+    const startScreen = document.getElementById('start-screen');
+    const gameoverScreen = document.getElementById('gameover-screen');
+    const finalScore = document.getElementById('final-score');
+    const highScoreText = document.getElementById('high-score');
+    const startButton = document.getElementById('start-button');
+    const restartButton = document.getElementById('restart-button');
+    const reticleOverlay = document.getElementById('reticle-overlay');
+    const canvasContainer = document.getElementById('canvas-container');
+
+    // === INITIALIZATION ===
+    function init() {
+      // 1. Three.js Scene Setup
+      scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x050505, 0.015);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.rotation.order = "YXZ"; // Avoid gimbal lock
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      canvasContainer.appendChild(renderer.domElement);
+
+      // Raycasting setup
+      activeRaycaster = new THREE.Raycaster();
+      mousePosition = new THREE.Vector2();
+
+      // Ambient illumination
+      const ambientLight = new THREE.AmbientLight(0x111122, 1.5);
+      scene.add(ambientLight);
+
+      // High-Contrast Accent Point Lights
+      pointLight1 = new THREE.PointLight(COLORS.CYAN, 3, 50);
+      pointLight1.position.set(15, 10, 15);
+      scene.add(pointLight1);
+
+      pointLight2 = new THREE.PointLight(COLORS.MAGENTA, 3, 50);
+      pointLight2.position.set(-15, -10, -15);
+      scene.add(pointLight2);
+
+      // Build Environments
+      buildGridEnvironment();
+      buildStarfield();
+
+      // Event Listeners
+      window.addEventListener('resize', onWindowResize, false);
+      setupInputHandlers();
+
+      // UI Initial Setup
+      updateHearts();
+      lucide.createIcons();
+
+      // Kick off animate loop
+      animate();
+    }
+
+    // Build modern cyber glowing grid floors & ceilings
+    function buildGridEnvironment() {
+      const gridHelperBottom = new THREE.GridHelper(200, 100, COLORS.PURPLE, COLORS.ELECTRIC_BLUE);
+      gridHelperBottom.position.y = -6;
+      gridHelperBottom.material.opacity = 0.45;
+      gridHelperBottom.material.transparent = true;
+      scene.add(gridHelperBottom);
+
+      const gridHelperTop = new THREE.GridHelper(200, 100, COLORS.PURPLE, COLORS.ELECTRIC_BLUE);
+      gridHelperTop.position.y = 12;
+      gridHelperTop.material.opacity = 0.25;
+      gridHelperTop.material.transparent = true;
+      scene.add(gridHelperTop);
+    }
+
+    // Generate beautiful particle star background
+    function buildStarfield() {
+      const starGeometry = new THREE.BufferGeometry();
+      const starCount = 3000;
+      const positions = new Float32Array(starCount * 3);
+      const colors = new Float32Array(starCount * 3);
+
+      for(let i=0; i<starCount * 3; i+=3) {
+        // Distribute stars far away in a shell
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        const distance = 80 + Math.random() * 60;
+
+        positions[i] = distance * Math.sin(phi) * Math.cos(theta);
+        positions[i+1] = distance * Math.sin(phi) * Math.sin(theta);
+        positions[i+2] = distance * Math.cos(phi);
+
+        // Mix in cyan & magenta star flares
+        const colorFactor = Math.random();
+        if (colorFactor > 0.85) {
+          colors[i] = 0.0; colors[i+1] = 0.94; colors[i+2] = 1.0; // Cyan
+        } else if (colorFactor > 0.7) {
+          colors[i] = 1.0; colors[i+1] = 0.0; colors[i+2] = 1.0; // Magenta
+        } else {
+          colors[i] = 0.8; colors[i+1] = 0.8; colors[i+2] = 0.9; // White/blue
+        }
+      }
+
+      starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      starGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const starMaterial = new THREE.PointsMaterial({
+        size: 0.65,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.82,
+        sizeAttenuation: true
+      });
+
+      starField = new THREE.Points(starGeometry, starMaterial);
+      scene.add(starField);
+    }
+
+    // === GAME ACTIONS ===
+    function startGame() {
+      initAudio();
+      playStartSound();
+
+      // Clear old state
+      enemies.forEach(e => {
+        scene.remove(e.mesh);
+      });
+      enemies = [];
+
+      score = 0;
+      combo = 0;
+      health = CONFIG.MAX_HEALTH;
+      currentSpeed = CONFIG.INITIAL_SPEED;
+      
+      scoreDisplay.textContent = score;
+      updateHearts();
+
+      gameState = 'PLAYING';
+
+      // Dom transition
+      startScreen.classList.add('hidden');
+      gameoverScreen.classList.add('hidden');
+      reticleOverlay.classList.remove('hidden');
+      comboContainer.classList.add('hidden');
+    }
+
+    function gameOver() {
+      gameState = 'GAMEOVER';
+      playGameOverSound();
+      
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('neon_slice_highscore', highScore);
+      }
+
+      finalScore.textContent = score;
+      highScoreText.textContent = highScore;
+
+      reticleOverlay.classList.add('hidden');
+      gameoverScreen.classList.remove('hidden');
+      comboContainer.classList.add('hidden');
+    }
+
+    function updateHearts() {
+      heartsContainer.innerHTML = '';
+      for (let i = 0; i < CONFIG.MAX_HEALTH; i++) {
+        const h = document.createElement('div');
+        h.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="${i < health ? '#FF00FF' : 'none'}" stroke="${i < health ? '#FF00FF' : '#333344'}" stroke-width="2" class="${i < health ? 'drop-shadow-[0_0_8px_#FF00FF]' : ''}"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>`;
+        heartsContainer.appendChild(h);
+      }
+    }
+
+    // === ENEMY LOGIC & GEOMETRY GENERATOR ===
+    function spawnEnemy() {
+      const angle = Math.random() * Math.PI * 2;
+      const height = (Math.random() - 0.5) * 6; // Limit bounds
+
+      // Spawn in a radial sphere around user
+      const x = Math.cos(angle) * CONFIG.SPAWN_RADIUS;
+      const z = Math.sin(angle) * CONFIG.SPAWN_RADIUS;
+      const y = height;
+
+      // Type probability
+      const typeRoll = Math.random();
+      let enemyType = ENEMY_TYPES.BASIC;
+      if (typeRoll > 0.70) enemyType = ENEMY_TYPES.ARROW;
+      if (typeRoll > 0.85) enemyType = ENEMY_TYPES.HEAVY;
+      if (typeRoll > 0.95) enemyType = ENEMY_TYPES.FAKE;
+
+      // Materials and models
+      let geometry, material, mesh;
+      let colorValue = COLORS.MAGENTA;
+      let lightPower = 2.0;
+
+      if (enemyType === ENEMY_TYPES.FAKE) {
+        colorValue = COLORS.DANGER_RED;
+        geometry = new THREE.SphereGeometry(0.85, 16, 16);
+        lightPower = 4.0;
+      } else if (enemyType === ENEMY_TYPES.HEAVY) {
+        colorValue = COLORS.PURPLE;
+        geometry = new THREE.BoxGeometry(1.4, 1.4, 1.4);
+        lightPower = 3.5;
+      } else if (enemyType === ENEMY_TYPES.ARROW) {
+        colorValue = COLORS.CYAN;
+        geometry = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+        lightPower = 2.5;
+      } else {
+        colorValue = COLORS.MAGENTA;
+        geometry = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+      }
+
+      material = new THREE.MeshBasicMaterial({
+        color: colorValue,
+        transparent: true,
+        opacity: 0.95,
+        wireframe: (enemyType === ENEMY_TYPES.HEAVY) ? false : true // Retro vibe
+      });
+
+      if (enemyType === ENEMY_TYPES.HEAVY) {
+        mesh = new THREE.Group();
+        const mainMesh = new THREE.Mesh(geometry, material);
+        const edges = new THREE.EdgesGeometry(geometry);
+        const edgeLine = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
+        mesh.add(mainMesh);
+        mesh.add(edgeLine);
+      } else if (enemyType === ENEMY_TYPES.ARROW) {
+        mesh = new THREE.Group();
+        const baseBox = new THREE.Mesh(geometry, material);
+        mesh.add(baseBox);
+
+        // Visual direction icon
+        const arrowGeo = new THREE.ConeGeometry(0.3, 0.7, 4);
+        const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+        arrowMesh.position.set(0, 0, 0.6);
+        arrowMesh.rotation.x = Math.PI / 2;
+        mesh.add(arrowMesh);
+      } else {
+        mesh = new THREE.Mesh(geometry, material);
+      }
+
+      // Initial placement & details
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+
+      const directionVector = new THREE.Vector3(-x, -y, -z).normalize();
+      
+      enemies.push({
+        id: Math.random().toString(36).substr(2, 9),
+        type: enemyType,
+        mesh: mesh,
+        direction: directionVector,
+        speed: currentSpeed,
+        health: (enemyType === ENEMY_TYPES.HEAVY) ? 2 : 1
+      });
+    }
+
+    // Handle interaction
+    function performSlice(enemyMatched) {
+      if (gameState !== 'PLAYING') return;
+
+      const idx = enemies.indexOf(enemyMatched);
+      if (idx === -1) return;
+
+      createNeonExplosion(enemyMatched.mesh.position, enemyMatched.type);
+
+      if (enemyMatched.type === ENEMY_TYPES.FAKE) {
+        // Red Core penalizes health!
+        playDamageSound();
+        health -= 1;
+        combo = 0;
+        updateHearts();
+        flashScreenRed();
+        
+        scene.remove(enemyMatched.mesh);
+        enemies.splice(idx, 1);
+
+        if (health <= 0) gameOver();
+      } else {
+        // Core block sliced
+        enemyMatched.health -= 1;
+        
+        if (enemyMatched.health <= 0) {
+          playSliceSound(enemyMatched.type);
+          score += 100 * (Math.floor(combo / 10) + 1);
+          scoreDisplay.textContent = score;
+          
+          combo += 1;
+          updateComboDisplay();
+
+          scene.remove(enemyMatched.mesh);
+          enemies.splice(idx, 1);
+        } else {
+          // Double score hit indicators
+          playSliceSound('BASIC');
+          enemyMatched.mesh.scale.set(0.7, 0.7, 0.7);
+          flashObjectSuccess(enemyMatched.mesh);
+        }
+      }
+    }
+
+    // === COMBOS, PARTICLES & SATISFYING FEEDBACK ===
+    function updateComboDisplay() {
+      if (combo > 1) {
+        comboContainer.style.display = 'flex';
+        comboContainer.classList.remove('hidden');
+        comboContainer.style.opacity = '1';
+        comboContainer.style.transform = 'scale(1.1)';
+        comboText.textContent = combo + 'x';
+        
+        setTimeout(() => {
+          comboContainer.style.transform = 'scale(1.0)';
+        }, 150);
+      } else {
+        comboContainer.classList.add('hidden');
+      }
+    }
+
+    function flashScreenRed() {
+      document.body.style.backgroundColor = '#400010';
+      setTimeout(() => {
+        document.body.style.backgroundColor = '#050505';
+      }, 150);
+    }
+
+    function flashObjectSuccess(mesh) {
+      if (mesh.material) {
+        mesh.material.color.setHex(0xffffff);
+        setTimeout(() => {
+          mesh.material.color.setHex(COLORS.PURPLE);
+        }, 100);
+      }
+    }
+
+    // Particle burst splash
+    function createNeonExplosion(pos, type) {
+      const particleCount = 20;
+      const particleGeo = new THREE.BufferGeometry();
+      const pPositions = new Float32Array(particleCount * 3);
+      const velocities = [];
+
+      let particleColorHex = COLORS.MAGENTA;
+      if (type === ENEMY_TYPES.ARROW) particleColorHex = COLORS.CYAN;
+      if (type === ENEMY_TYPES.FAKE) particleColorHex = COLORS.DANGER_RED;
+      if (type === ENEMY_TYPES.HEAVY) particleColorHex = COLORS.PURPLE;
+
+      for (let i = 0; i < particleCount; i++) {
+        pPositions[i*3] = pos.x;
+        pPositions[i*3+1] = pos.y;
+        pPositions[i*3+2] = pos.z;
+
+        velocities.push({
+          x: (Math.random() - 0.5) * 6,
+          y: (Math.random() - 0.5) * 6,
+          z: (Math.random() - 0.5) * 6
+        });
+      }
+
+      particleGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+      
+      const particleMat = new THREE.PointsMaterial({
+        color: particleColorHex,
+        size: 0.45,
+        transparent: true,
+        opacity: 0.95
+      });
+
+      const particles = new THREE.Points(particleGeo, particleMat);
+      scene.add(particles);
+
+      let pTimer = 0;
+      function animateParticles() {
+        if (pTimer > 35) {
+          scene.remove(particles);
+          return;
+        }
+
+        const currentPositions = particles.geometry.attributes.position.array;
+        for (let i = 0; i < particleCount; i++) {
+          currentPositions[i*3] += velocities[i].x * 0.05;
+          currentPositions[i*3+1] += velocities[i].y * 0.05;
+          currentPositions[i*3+2] += velocities[i].z * 0.05;
+        }
+        particles.geometry.attributes.position.needsUpdate = true;
+        particleMat.opacity *= 0.92;
+
+        pTimer++;
+        requestAnimationFrame(animateParticles);
+      }
+      animateParticles();
+    }
+
+    // === GAME CONTROL IMPLEMENTATION ===
+    function setupInputHandlers() {
+      // Background manual look around dragging
+      window.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        previousMouseX = e.clientX;
+        previousMouseY = e.clientY;
+
+        testRaycastInteraction(e);
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+          const deltaX = e.clientX - previousMouseX;
+          const deltaY = e.clientY - previousMouseY;
+
+          rotateY -= deltaX * 0.005;
+          rotateX -= deltaY * 0.005;
+
+          // Clamping vertical drag bounds
+          rotateX = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, rotateX));
+
+          camera.rotation.y = rotateY;
+          camera.rotation.x = rotateX;
+
+          previousMouseX = e.clientX;
+          previousMouseY = e.clientY;
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      // Mobile touch support
+      window.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        const touch = e.touches[0];
+        previousMouseX = touch.clientX;
+        previousMouseY = touch.clientY;
+        testRaycastInteraction(touch);
+      }, { passive: false });
+
+      window.addEventListener('touchmove', (e) => {
+        if (isDragging && e.touches.length > 0) {
+          const touch = e.touches[0];
+          const deltaX = touch.clientX - previousMouseX;
+          const deltaY = touch.clientY - previousMouseY;
+
+          rotateY -= deltaX * 0.006;
+          rotateX -= deltaY * 0.006;
+          rotateX = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, rotateX));
+
+          camera.rotation.y = rotateY;
+          camera.rotation.x = rotateX;
+
+          previousMouseX = touch.clientX;
+          previousMouseY = touch.clientY;
+        }
+      }, { passive: false });
+
+      window.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+
+      startButton.addEventListener('click', startGame);
+      restartButton.addEventListener('click', startGame);
+    }
+
+    function testRaycastInteraction(eventPointer) {
+      if (gameState !== 'PLAYING') return;
+
+      mousePosition.x = (eventPointer.clientX / window.innerWidth) * 2 - 1;
+      mousePosition.y = -(eventPointer.clientY / window.innerHeight) * 2 + 1;
+
+      activeRaycaster.setFromCamera(mousePosition, camera);
+
+      const activeTargets = [];
+      enemies.forEach(e => {
+        if (e.mesh.isGroup || e.mesh.children && e.mesh.children.length > 0) {
+          e.mesh.traverse(child => {
+            if (child.isMesh) {
+              activeTargets.push(child);
+            }
+          });
+        } else {
+          activeTargets.push(e.mesh);
+        }
+      });
+
+      const targetIntersects = activeRaycaster.intersectObjects(activeTargets, true);
+
+      if (targetIntersects.length > 0) {
+        const firstHitMesh = targetIntersects[0].object;
+        
+        const hitEnemy = enemies.find(e => {
+          if (e.mesh === firstHitMesh) return true;
+          let found = false;
+          e.mesh.traverse(child => {
+            if (child === firstHitMesh) found = true;
+          });
+          return found;
+        });
+
+        if (hitEnemy) {
+          performSlice(hitEnemy);
+        }
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // === ENGINE TICKER ===
+    function animate() {
+      requestAnimationFrame(animate);
+
+      globalTime += 0.01;
+
+      // Spawning loop
+      if (gameState === 'PLAYING') {
+        const now = Date.now();
+        if (now - lastSpawnTime > CONFIG.SPAWN_INTERVAL) {
+          spawnEnemy();
+          lastSpawnTime = now;
+          currentSpeed = Math.min(CONFIG.MAX_SPEED, currentSpeed + CONFIG.SPEED_INCREMENT);
+        }
+      }
+
+      // Move targets
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        enemy.mesh.position.addScaledVector(enemy.direction, enemy.speed);
+
+        enemy.mesh.rotation.y += 0.02;
+        enemy.mesh.rotation.x += 0.01;
+
+        const distToCenter = enemy.mesh.position.length();
+
+        if (distToCenter < CONFIG.DESPAWN_RADIUS) {
+          scene.remove(enemy.mesh);
+          enemies.splice(i, 1);
+
+          if (enemy.type !== ENEMY_TYPES.FAKE) {
+            playDamageSound();
+            flashScreenRed();
+            health -= 1;
+            combo = 0;
+            updateHearts();
+            updateComboDisplay();
+
+            if (health <= 0) {
+              gameOver();
+            }
+          }
+        }
+      }
+
+      pointLight1.intensity = 3 + Math.sin(globalTime * 3) * 1;
+      pointLight2.intensity = 3 + Math.cos(globalTime * 3) * 1;
+
+      renderer.render(scene, camera);
+    }
+
+    // Initialize gameplay
+    init();
+  </script>
+</body>
 </html>
