@@ -84,9 +84,21 @@
         <p class="text-white/60 text-sm sm:text-base tracking-wide max-w-sm mb-2">
           Defend the core. Look all around you by dragging or swiping. Click or tap incoming neon energy blocks to slice them! Watch out for red EMP cores.
         </p>
-        <button id="start-button" class="group relative px-10 py-4 bg-transparent border-2 border-cyan-400 text-cyan-400 font-bold uppercase tracking-widest transition-all duration-300 hover:bg-cyan-400 hover:text-black hover:neon-border-cyan cursor-pointer rounded">
-          Initialize Matrix
-        </button>
+        
+        <div class="flex flex-col sm:flex-row gap-4 w-full justify-center">
+          <button id="start-button" class="group relative px-10 py-4 bg-transparent border-2 border-cyan-400 text-cyan-400 font-bold uppercase tracking-widest transition-all duration-300 hover:bg-cyan-400 hover:text-black hover:neon-border-cyan cursor-pointer rounded flex items-center justify-center gap-2">
+            <i data-lucide="play" class="w-5 h-5"></i>
+            Initialize Matrix
+          </button>
+          
+          <button id="vr-button" class="group relative px-10 py-4 bg-transparent border-2 border-magenta-500 text-magenta-500 font-bold uppercase tracking-widest transition-all duration-300 hover:bg-magenta-500 hover:text-black hover:neon-border-magenta cursor-pointer rounded flex items-center justify-center gap-2">
+            <i data-lucide="glasses" class="w-5 h-5"></i>
+            Enter VR Mode
+          </button>
+        </div>
+        
+        <!-- VR Support info notice (fades in if not supported) -->
+        <p id="vr-info" class="text-xs text-white/40 max-w-xs"></p>
       </div>
 
       <!-- Game Over Overlay -->
@@ -103,11 +115,11 @@
 
     <!-- Bottom info -->
     <div class="w-full text-center text-[10px] font-mono uppercase tracking-[0.4em] text-white/40">
-      Defensive Protocol Matrix Active // Drag to Look Around // Click to Slice
+      Defensive Protocol Matrix Active // Drag to Look Around // VR Controllers Slices & Point-and-shoot Trigger supported
     </div>
   </div>
 
-  <!-- Reticle Crosshair (Gameplay indicator) -->
+  <!-- Reticle Crosshair (Gameplay indicator - will show only when not in VR view) -->
   <div id="reticle-overlay" class="hidden fixed inset-0 pointer-events-none flex items-center justify-center z-5">
     <div class="w-12 h-12 border border-cyan-400/30 rounded-full flex items-center justify-center animate-pulse">
       <div class="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_#00F0FF]"></div>
@@ -274,18 +286,21 @@
     let highScore = localStorage.getItem('neon_slice_highscore') || 0;
     
     let enemies = [];
-    let speedMultiplier = 1;
     let currentSpeed = CONFIG.INITIAL_SPEED;
     let lastSpawnTime = 0;
     let globalTime = 0;
+    let vrActive = false;
 
     // === THREE.JS SETUP Variables ===
     let scene, camera, renderer;
-    let reticle, grid, starField, pointLight1, pointLight2;
+    let grid, starField, pointLight1, pointLight2, coreGlow;
     let activeRaycaster, mousePosition;
-    let isTrackingMouse = false;
+    
+    // VR Controllers variables
+    let controller1, controller2;
+    let swordMesh1, swordMesh2;
 
-    // Rotation variables (Manual Orbit simulation to ensure high performance on mobile + web)
+    // Rotation variables (Manual Orbit simulation to ensure high performance on mobile & desktop)
     let isDragging = false;
     let previousMouseX = 0;
     let previousMouseY = 0;
@@ -302,6 +317,8 @@
     const finalScore = document.getElementById('final-score');
     const highScoreText = document.getElementById('high-score');
     const startButton = document.getElementById('start-button');
+    const vrButton = document.getElementById('vr-button');
+    const vrInfo = document.getElementById('vr-info');
     const restartButton = document.getElementById('restart-button');
     const reticleOverlay = document.getElementById('reticle-overlay');
     const canvasContainer = document.getElementById('canvas-container');
@@ -316,13 +333,14 @@
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
       camera.rotation.order = "YXZ"; // Avoid gimbal lock
 
-      // Renderer
+      // Renderer (Enabled alpha and modern features)
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.shadowMap.enabled = true;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.0;
+      renderer.xr.enabled = true; // WebXR support is built-in
       canvasContainer.appendChild(renderer.domElement);
 
       // Raycasting setup
@@ -342,20 +360,58 @@
       pointLight2.position.set(-15, -10, -15);
       scene.add(pointLight2);
 
+      // Build defended center glowing crystal core (Fantastic depth indicator in VR!)
+      buildCoreVisual();
+
       // Build Environments
       buildGridEnvironment();
       buildStarfield();
+
+      // Setup VR Controllers
+      setupVRControllers();
 
       // Event Listeners
       window.addEventListener('resize', onWindowResize, false);
       setupInputHandlers();
 
+      // Detect VR support
+      detectVRSupport();
+
       // UI Initial Setup
       updateHearts();
       lucide.createIcons();
 
-      // Kick off animate loop
-      animate();
+      // Kick off unified animation loop (REQUIRED for WebXR)
+      renderer.setAnimationLoop(animate);
+    }
+
+    // Build central defended glowing core visual to give reference point in VR spaces
+    function buildCoreVisual() {
+      const coreGroup = new THREE.Group();
+      
+      // Wireframe outer sphere
+      const outerGeo = new THREE.IcosahedronGeometry(1.2, 1);
+      const outerMat = new THREE.MeshBasicMaterial({
+        color: COLORS.CYAN,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.3
+      });
+      const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+      coreGroup.add(outerMesh);
+
+      // Solid inner core
+      const innerGeo = new THREE.OctahedronGeometry(0.6, 0);
+      const innerMat = new THREE.MeshBasicMaterial({
+        color: COLORS.MAGENTA,
+        transparent: true,
+        opacity: 0.7
+      });
+      const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+      coreGroup.add(innerMesh);
+
+      coreGlow = coreGroup;
+      scene.add(coreGlow);
     }
 
     // Build modern cyber glowing grid floors & ceilings
@@ -416,8 +472,105 @@
       scene.add(starField);
     }
 
+    // Setup VR Controllers & Lightsabers
+    function setupVRControllers() {
+      // Setup Controller 1
+      controller1 = renderer.xr.getController(0);
+      scene.add(controller1);
+
+      // Setup Controller 2
+      controller2 = renderer.xr.getController(1);
+      scene.add(controller2);
+
+      // Create glowing neon swords (swords only visible in VR)
+      const swordGeometry = new THREE.CylinderGeometry(0.015, 0.012, 1.2, 8);
+      // Shift so the blade extends straight forward from controller tip
+      swordGeometry.translate(0, 0, -0.6);
+      swordGeometry.rotateX(Math.PI / 2);
+
+      // Controller 1 Cyan Saber
+      const cyanSaberMat = new THREE.MeshBasicMaterial({
+        color: COLORS.CYAN,
+        transparent: true,
+        opacity: 0.9
+      });
+      swordMesh1 = new THREE.Mesh(swordGeometry, cyanSaberMat);
+      controller1.add(swordMesh1);
+
+      // Controller 2 Magenta Saber
+      const magentaSaberMat = new THREE.MeshBasicMaterial({
+        color: COLORS.MAGENTA,
+        transparent: true,
+        opacity: 0.9
+      });
+      swordMesh2 = new THREE.Mesh(swordGeometry, magentaSaberMat);
+      controller2.add(swordMesh2);
+
+      // Point and shoot trigger slicing listeners
+      const triggerListener = (event) => {
+        if (gameState !== 'PLAYING') return;
+        const targetController = event.target;
+        
+        // Shoot ray to query distant blocks!
+        const tempMatrix = new THREE.Matrix4();
+        tempMatrix.identity().extractRotation(targetController.matrixWorld);
+        
+        const origin = new THREE.Vector3().setFromMatrixPosition(targetController.matrixWorld);
+        const direction = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+
+        const vrRaycaster = new THREE.Raycaster(origin, direction);
+        
+        const activeTargets = [];
+        enemies.forEach(e => {
+          e.mesh.traverse(child => {
+            if (child.isMesh) {
+              activeTargets.push(child);
+            }
+          });
+        });
+
+        const intersects = vrRaycaster.intersectObjects(activeTargets, true);
+        if (intersects.length > 0) {
+          const hitMesh = intersects[0].object;
+          const hitEnemy = enemies.find(e => {
+            let found = false;
+            e.mesh.traverse(child => {
+              if (child === hitMesh) found = true;
+            });
+            return found;
+          });
+
+          if (hitEnemy) {
+            performSlice(hitEnemy);
+          }
+        }
+      };
+
+      controller1.addEventListener('selectstart', triggerListener);
+      controller2.addEventListener('selectstart', triggerListener);
+    }
+
+    // Checking device & browser capability for WebXR/VR
+    function detectVRSupport() {
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+          if (supported) {
+            vrInfo.textContent = 'WebXR ready. Put on your VR headset and click "Enter VR Mode"!';
+            vrInfo.className = "text-xs text-green-400 max-w-xs mt-2 font-mono";
+          } else {
+            vrInfo.textContent = 'Note: Headset not detected. Entering WebXR VR will attempt simulated cardboard/goggles split screen.';
+            vrInfo.className = "text-xs text-yellow-500/80 max-w-xs mt-2 font-mono";
+          }
+        }).catch(() => {
+          vrInfo.textContent = 'WebXR VR Support profile checking failed. Standard look & slice active.';
+        });
+      } else {
+        vrInfo.textContent = 'VR requires WebXR (e.g., Quest, Android Chrome, or Safari with WebXR flags). Fallback desktop simulation active.';
+      }
+    }
+
     // === GAME ACTIONS ===
-    function startGame() {
+    function startGame(forceVR = false) {
       initAudio();
       playStartSound();
 
@@ -440,8 +593,39 @@
       // Dom transition
       startScreen.classList.add('hidden');
       gameoverScreen.classList.add('hidden');
-      reticleOverlay.classList.remove('hidden');
       comboContainer.classList.add('hidden');
+
+      if (forceVR) {
+        enterVRMode();
+      } else {
+        reticleOverlay.classList.remove('hidden');
+      }
+    }
+
+    // Initialize immersive VR Session using WebXR APIs
+    function enterVRMode() {
+      if (!navigator.xr) {
+        alert("WebXR API is not supported on this device/browser. To play in VR, please open this link in a compatible headset browser like Oculus Browser on Quest, or Google Chrome on Android.");
+        return;
+      }
+
+      navigator.xr.requestSession('immersive-vr', {
+        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+      }).then((session) => {
+        vrActive = true;
+        reticleOverlay.classList.add('hidden'); // Hide flat reticle in VR space
+        
+        session.addEventListener('end', () => {
+          vrActive = false;
+          reticleOverlay.classList.remove('hidden');
+        });
+
+        renderer.xr.setSession(session);
+      }).catch((err) => {
+        console.error("Failed to start XR session:", err);
+        // Fallback or warning if request rejected/failed
+        alert("Could not start VR mode. Ensure your headset is connected and permits XR immersive experiences!");
+      });
     }
 
     function gameOver() {
@@ -459,6 +643,12 @@
       reticleOverlay.classList.add('hidden');
       gameoverScreen.classList.remove('hidden');
       comboContainer.classList.add('hidden');
+
+      // Exit VR session smoothly if playing
+      if (renderer.xr.isPresenting) {
+        const session = renderer.xr.getSession();
+        if (session) session.end();
+      }
     }
 
     function updateHearts() {
@@ -473,37 +663,33 @@
     // === ENEMY LOGIC & GEOMETRY GENERATOR ===
     function spawnEnemy() {
       const angle = Math.random() * Math.PI * 2;
-      const height = (Math.random() - 0.5) * 6; // Limit bounds
+      const height = (Math.random() - 0.5) * 6; // Limit bounds to visual field of player
 
-      // Spawn in a radial sphere around user
+      // Spawn in a radial sphere around player/center
       const x = Math.cos(angle) * CONFIG.SPAWN_RADIUS;
       const z = Math.sin(angle) * CONFIG.SPAWN_RADIUS;
       const y = height;
 
-      // Type probability
+      // Type odds distribution
       const typeRoll = Math.random();
       let enemyType = ENEMY_TYPES.BASIC;
       if (typeRoll > 0.70) enemyType = ENEMY_TYPES.ARROW;
       if (typeRoll > 0.85) enemyType = ENEMY_TYPES.HEAVY;
       if (typeRoll > 0.95) enemyType = ENEMY_TYPES.FAKE;
 
-      // Materials and models
+      // Materials and structures
       let geometry, material, mesh;
       let colorValue = COLORS.MAGENTA;
-      let lightPower = 2.0;
 
       if (enemyType === ENEMY_TYPES.FAKE) {
         colorValue = COLORS.DANGER_RED;
         geometry = new THREE.SphereGeometry(0.85, 16, 16);
-        lightPower = 4.0;
       } else if (enemyType === ENEMY_TYPES.HEAVY) {
         colorValue = COLORS.PURPLE;
         geometry = new THREE.BoxGeometry(1.4, 1.4, 1.4);
-        lightPower = 3.5;
       } else if (enemyType === ENEMY_TYPES.ARROW) {
         colorValue = COLORS.CYAN;
         geometry = new THREE.BoxGeometry(1.0, 1.0, 1.0);
-        lightPower = 2.5;
       } else {
         colorValue = COLORS.MAGENTA;
         geometry = new THREE.BoxGeometry(1.0, 1.0, 1.0);
@@ -513,7 +699,7 @@
         color: colorValue,
         transparent: true,
         opacity: 0.95,
-        wireframe: (enemyType === ENEMY_TYPES.HEAVY) ? false : true // Retro vibe
+        wireframe: (enemyType === ENEMY_TYPES.HEAVY) ? false : true // Retro vibe wireframes
       });
 
       if (enemyType === ENEMY_TYPES.HEAVY) {
@@ -539,7 +725,7 @@
         mesh = new THREE.Mesh(geometry, material);
       }
 
-      // Initial placement & details
+      // Initial placement & tracking details
       mesh.position.set(x, y, z);
       scene.add(mesh);
 
@@ -565,7 +751,7 @@
       createNeonExplosion(enemyMatched.mesh.position, enemyMatched.type);
 
       if (enemyMatched.type === ENEMY_TYPES.FAKE) {
-        // Red Core penalizes health!
+        // Red bomb penalizes health!
         playDamageSound();
         health -= 1;
         combo = 0;
@@ -577,7 +763,7 @@
 
         if (health <= 0) gameOver();
       } else {
-        // Core block sliced
+        // Target core sliced
         enemyMatched.health -= 1;
         
         if (enemyMatched.health <= 0) {
@@ -591,7 +777,7 @@
           scene.remove(enemyMatched.mesh);
           enemies.splice(idx, 1);
         } else {
-          // Double score hit indicators
+          // Double hit feedback indicators
           playSliceSound('BASIC');
           enemyMatched.mesh.scale.set(0.7, 0.7, 0.7);
           flashObjectSuccess(enemyMatched.mesh);
@@ -616,6 +802,7 @@
       }
     }
 
+    // Flash screen matrix
     function flashScreenRed() {
       document.body.style.backgroundColor = '#400010';
       setTimeout(() => {
@@ -632,7 +819,7 @@
       }
     }
 
-    // Particle burst splash
+    // Particle neon slice burst
     function createNeonExplosion(pos, type) {
       const particleCount = 20;
       const particleGeo = new THREE.BufferGeometry();
@@ -690,10 +877,44 @@
       animateParticles();
     }
 
+    // Checking collision between glowing lightsabers and active targets
+    function checkVRControllerSlicing(controller, swordLen = 1.2) {
+      if (!controller || !controller.visible) return;
+      
+      const controllerPos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+      
+      // Calculate forward direction vector of controller
+      const tempMatrix = new THREE.Matrix4();
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+      const direction = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+      
+      const swordEnd = controllerPos.clone().addScaledVector(direction, swordLen);
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        if (!enemy || !enemy.mesh) continue;
+        
+        const enemyPos = enemy.mesh.position;
+        
+        // Compute distance from enemy position to segment (controllerPos -> swordEnd)
+        const diff = enemyPos.clone().sub(controllerPos);
+        const t = Math.max(0, Math.min(1, diff.dot(direction) / swordLen));
+        const closestPointOnSword = controllerPos.clone().addScaledVector(direction, t * swordLen);
+        
+        const distance = enemyPos.distanceTo(closestPointOnSword);
+        const hitDistanceThreshold = (enemy.type === ENEMY_TYPES.HEAVY ? 1.4 : 1.0);
+        
+        if (distance < hitDistanceThreshold) {
+          performSlice(enemy);
+        }
+      }
+    }
+
     // === GAME CONTROL IMPLEMENTATION ===
     function setupInputHandlers() {
-      // Background manual look around dragging
+      // Manual dragging camera view (Fallback for flat screens)
       window.addEventListener('mousedown', (e) => {
+        if (vrActive) return; // Ignore drag clicks if playing inside VR headsets
         isDragging = true;
         previousMouseX = e.clientX;
         previousMouseY = e.clientY;
@@ -702,14 +923,14 @@
       });
 
       window.addEventListener('mousemove', (e) => {
-        if (isDragging) {
+        if (isDragging && !vrActive) {
           const deltaX = e.clientX - previousMouseX;
           const deltaY = e.clientY - previousMouseY;
 
           rotateY -= deltaX * 0.005;
           rotateX -= deltaY * 0.005;
 
-          // Clamping vertical drag bounds
+          // Clamping bounds
           rotateX = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, rotateX));
 
           camera.rotation.y = rotateY;
@@ -724,8 +945,9 @@
         isDragging = false;
       });
 
-      // Mobile touch support
+      // Mobile touch support mapping
       window.addEventListener('touchstart', (e) => {
+        if (vrActive) return;
         isDragging = true;
         const touch = e.touches[0];
         previousMouseX = touch.clientX;
@@ -734,7 +956,7 @@
       }, { passive: false });
 
       window.addEventListener('touchmove', (e) => {
-        if (isDragging && e.touches.length > 0) {
+        if (isDragging && e.touches.length > 0 && !vrActive) {
           const touch = e.touches[0];
           const deltaX = touch.clientX - previousMouseX;
           const deltaY = touch.clientY - previousMouseY;
@@ -755,8 +977,9 @@
         isDragging = false;
       });
 
-      startButton.addEventListener('click', startGame);
-      restartButton.addEventListener('click', startGame);
+      startButton.addEventListener('click', () => startGame(false));
+      vrButton.addEventListener('click', () => startGame(true));
+      restartButton.addEventListener('click', () => startGame(false));
     }
 
     function testRaycastInteraction(eventPointer) {
@@ -769,15 +992,11 @@
 
       const activeTargets = [];
       enemies.forEach(e => {
-        if (e.mesh.isGroup || e.mesh.children && e.mesh.children.length > 0) {
-          e.mesh.traverse(child => {
-            if (child.isMesh) {
-              activeTargets.push(child);
-            }
-          });
-        } else {
-          activeTargets.push(e.mesh);
-        }
+        e.mesh.traverse(child => {
+          if (child.isMesh) {
+            activeTargets.push(child);
+          }
+        });
       });
 
       const targetIntersects = activeRaycaster.intersectObjects(activeTargets, true);
@@ -786,7 +1005,6 @@
         const firstHitMesh = targetIntersects[0].object;
         
         const hitEnemy = enemies.find(e => {
-          if (e.mesh === firstHitMesh) return true;
           let found = false;
           e.mesh.traverse(child => {
             if (child === firstHitMesh) found = true;
@@ -808,9 +1026,15 @@
 
     // === ENGINE TICKER ===
     function animate() {
-      requestAnimationFrame(animate);
-
       globalTime += 0.01;
+
+      // Pulse defended crystal core visuals
+      if (coreGlow) {
+        coreGlow.rotation.y += 0.01;
+        coreGlow.rotation.x += 0.005;
+        const scalePulse = 1.0 + Math.sin(globalTime * 4.0) * 0.08;
+        coreGlow.scale.set(scalePulse, scalePulse, scalePulse);
+      }
 
       // Spawning loop
       if (gameState === 'PLAYING') {
@@ -819,6 +1043,12 @@
           spawnEnemy();
           lastSpawnTime = now;
           currentSpeed = Math.min(CONFIG.MAX_SPEED, currentSpeed + CONFIG.SPEED_INCREMENT);
+        }
+        
+        // If VR Mode is active, check physical collision with saber controller models!
+        if (vrActive) {
+          checkVRControllerSlicing(controller1);
+          checkVRControllerSlicing(controller2);
         }
       }
 
