@@ -124,7 +124,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
   <script>
-    // --- GAME CONSTANTS ---
+    // === GAME CONSTANTS ===
     const COLORS = {
       CYAN: 0x00F0FF,
       MAGENTA: 0xFF00FF,
@@ -151,7 +151,7 @@
       FAKE: 'FAKE'
     };
 
-    // --- STATE VARIABLES ---
+    // === STATE VARIABLES ===
     let gameState = 'START'; // 'START', 'PLAYING', 'GAMEOVER'
     let score = 0;
     let combo = 0;
@@ -164,7 +164,7 @@
     let lastSpawnTime = 0;
     let globalTime = 0;
 
-    // --- AUDIO CONTEXT SYNTHESIZER ---
+    // === AUDIO CONTEXT SYNTHESIZER ===
     let audioCtx = null;
 
     function initAudio() {
@@ -200,7 +200,7 @@
       }
     }
 
-    // --- THREE.JS SETUP Variables ---
+    // === THREE.JS SETUP Variables ===
     let scene, camera, renderer;
     let reticle, grid, starField, pointLight1, pointLight2;
     let activeRaycaster, mousePosition;
@@ -213,7 +213,7 @@
     let rotateY = 0;
     let rotateX = 0;
 
-    // --- DOM REFERENCES ---
+    // === DOM REFERENCES ===
     const scoreDisplay = document.getElementById('score-display');
     const heartsContainer = document.getElementById('hearts-container');
     const comboContainer = document.getElementById('combo-container');
@@ -227,7 +227,7 @@
     const reticleOverlay = document.getElementById('reticle-overlay');
     const canvasContainer = document.getElementById('canvas-container');
 
-    // --- INITIALIZATION ---
+    // === INITIALIZATION ===
     function init() {
       // 1. Three.js Scene Setup
       scene = new THREE.Scene();
@@ -339,7 +339,7 @@
       scene.add(starField);
     }
 
-    // --- GAME ACTIONS ---
+    // === GAME ACTIONS ===
     function startGame() {
       initAudio();
 
@@ -395,7 +395,7 @@
       }
     }
 
-    // --- ENEMY LOGIC & GEOMETRY GENERATOR ---
+    // === ENEMY LOGIC & GEOMETRY GENERATOR ===
     function spawnEnemy() {
       const angle = Math.random() * Math.PI * 2;
       const height = (Math.random() - 0.5) * 6; // Limit height bounds to gameplay vision
@@ -526,7 +526,7 @@
       }
     }
 
-    // --- COMBOS, PARTICLES & SATISFYING FEEDBACK ---
+    // === COMBOS, PARTICLES & SATISFYING FEEDBACK ===
     function updateComboDisplay() {
       if (combo > 1) {
         comboContainer.style.display = 'flex';
@@ -608,7 +608,7 @@
       animateParticles();
     }
 
-    // --- GAME CONTROL IMPLEMENTATION ---
+    // === GAME CONTROL IMPLEMENTATION ===
     function setupInputHandlers() {
       // Mouse dragging look & slash interaction
       window.addEventListener('mousedown', (e) => {
@@ -737,7 +737,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // --- ENGINE TICKER & CORE LOOP ---
+    // === ENGINE TICKER & CORE LOOP ===
     function animate() {
       requestAnimationFrame(animate);
 
